@@ -16,20 +16,21 @@ class Cart {
 
 	protected $items;
 
-	protected $discount;
+	protected $discount = 0;
 
-	protected $tax;
+	protected $tax = 0;
 
 	public function __construct(Store $session, Repository $config)
 	{
 		$this->config = $config;
 		$this->session = $session;
+		$this->sessionKey = $this->config->get('cart::sessionKey');
 
 		// Make items a collection
 		$this->items = new Collection;
 
 		// Get items from session
-		if ($items = $this->session->get($this->config->get('cart::sessionKey')))
+		if ($items = $this->session->get($this->sessionKey)
 		{
 			// Set items
 			$this->setItems($items);
@@ -78,7 +79,7 @@ class Cart {
 				throw new \Exception('This item already exists, dumbass');
 			}
 
-			$item = with(new Item($this))->fill($items);
+			$item = with(new Item)->fill($items);
 
 			$this->items->put($item->rowId, $item);
 		}
@@ -212,6 +213,14 @@ class Cart {
 		return $this->items->get($id);
 	}
 
+	protected function autoSave()
+	{
+		if ($this->isAutoSave() === true)
+		{
+			$this->save();
+		}
+	}
+
 	/**
 	 * Save update.
 	 *
@@ -219,9 +228,20 @@ class Cart {
 	 */
 	public function save()
 	{
-		$this->session->put($this->config->get('cart::sessionKey'), $this->items->toArray());
+		$this->session->put($this->sessionKey, $this->items->toArray());
 
 		return true;
+	}
+
+	/**
+	 * Clear the cart.
+	 *
+	 */
+	public function destroy()
+	{
+		$this->session->forget($this->sessionKey);
+
+		return $this;
 	}
 
 	/**
@@ -246,25 +266,6 @@ class Cart {
 		return $this->autoSave;
 	}
 
-	protected function autoSave()
-	{
-		if ($this->isAutoSave() === true)
-		{
-			$this->save();
-		}
-	}
-
-	/**
-	 * Clear the cart.
-	 *
-	 */
-	public function destroy()
-	{
-		$this->session->forget($this->config->get('cart::sessionKey'));
-
-		return $this;
-	}
-
 	public function totalPrice()
 	{
 		$total = 0;
@@ -286,12 +287,14 @@ class Cart {
 	{
 		$total = $this->totalPrice();
 
-		if (isset($this->discount))
+		// Calculate discount if exists
+		if ($this->discount != 0)
 		{
 			$total -= $this->calculatePercentualOrFixed($this->discount);
 		}
 
-		if (isset($this->tax))
+		// Calculate the tax if exists
+		if ($this->tax != 0)
 		{
 			$total += $this->calculatePercentualOrFixed($this->tax);
 		}
@@ -340,6 +343,10 @@ class Cart {
 	 */
 	public function __toString()
 	{
-		return $this->items->toJson();
+		return json_encode(array(
+			'discount' => $this->dicount,
+			'tax'      => $this->tax,
+			'items'    => $this->items->toArray(),
+		));
 	}
 }
