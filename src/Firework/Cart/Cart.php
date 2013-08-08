@@ -6,14 +6,19 @@ use Illuminate\Config\Repository;
 
 class Cart {
 
-	protected $sessionKey;
-
-	protected $items;
 	protected $config;
 
 	protected $session;
 
+	protected $sessionKey;
+
 	protected $autoSave = false;
+
+	protected $items;
+
+	protected $discount;
+
+	protected $tax;
 
 	public function __construct(Store $session, Repository $config)
 	{
@@ -37,49 +42,93 @@ class Cart {
 	/**
 	 * Add Item to Cart.
 	 *
-	 * @param  mixed  $item
-	 * @param  bool   $save
-	 * @return mixed
+	 * @param  mixed  $items Array of items, attributes of a item or a Item object
+	 *
+	 * @return \Firework\Cart
 	 */
-	public function add(array $attributes)
+	public function add($items)
 	{
-		if( empty($attributes['rowId']))
+		// Array of items
+		if (isset($items[0]) and (is_array($items[0]) or $items[0] instanceof Item))
 		{
-			$attributes['rowId'] = $this->createRowId($attributes['id']);
+			foreach ($items as $item)
+			{
+				$this->add($item);
+			}
+		}
+		// An Item instance
+		elseif ($items instanceof Item)
+		{
+			if ($this->items->has($items->rowId))
+			{
+				throw new \Exception('This item already exists, dumbass');
+			}
+
+			$this->items->put($items->rowId, $item);
+		}
+		// An array of attributes
+		else
+		{
+			if(empty($items['rowId']))
+			{
+				$items['rowId'] = $this->createRowId($items['id']);
+			}
+			elseif ($this->items->has($items['rowId']))
+			{
+				throw new \Exception('This item already exists, dumbass');
+			}
+
+			$item = with(new Item($this))->fill($items);
+
+			$this->items->put($item->rowId, $item);
 		}
 
-		if ($this->items->has($attributes['rowId']))
-		{
-			throw new \Exception('This item already exists, dumbass');
-		}
-
-		$item = with(new Item($this))->fill($attributes);
-
-		$this->items->put($item->rowId, $item);
-
-		if ($this->isAutoSave() === true)
-		{
-			$this->save();
-		}
+		// Save it
+		$this->autoSave();
 
 		return $this;
 	}
 
-	public function update($rowId, array $attributes)
+	/**
+	 * Update items cart.
+	 *
+	 * @param  mixed  $items Array of items, attributes of a item or a Item object
+	 *
+	 * @return \Firework\Cart
+	 */
+	public function update($items)
 	{
-		if ($item = $this->items->get($rowId))
+		// Array of items
+		if (isset($items[0]) and (is_array($items[0]) or $items[0] instanceof Item))
 		{
-			$item->fill($attributes);
-
-			if ($this->isAutoSave() === true)
+			foreach ($items as $item)
 			{
-				$this->save();
+				$this->update($item);
 			}
 		}
+		// An Item instance
+		elseif ($items instanceof Item)
+		{
+			if ( ! $this->items->has($items->rowId))
+			{
+				throw new \Exception('This item already exists, dumbass');
+			}
+
+			$this->items->put($items->rowId, $item);
+		}
+		// An array of attributes
 		else
 		{
-			throw new \Exception('Baaaaaaaahhhh, something wrong');
+			if (empty($items['rowId']) or ! $this->items->has($items['rowId']))
+			{
+				throw new \Exception('Baaaaaaaahhhh, something wrong');
+			}
+
+			$this->items->get($items['rowId'])->fill($items);
 		}
+
+		// Save it
+		$this->autoSave();
 
 		return $this;
 	}
@@ -90,9 +139,38 @@ class Cart {
 	 * @param  string $id
 	 * @return bool
 	 */
-	public function remove($id)
+	public function remove($items)
 	{
-		$this->items->forget($id);
+		// Array of items
+		if (isset($items[0]))
+		{
+			foreach ($items as $item)
+			{
+				$this->remove($item);
+			}
+		}
+		// An instance of Item or array of attributes or rowId
+		else
+		{
+			if ($items instanceof Item)
+			{
+				$rowId = $items->rowId;
+			}
+			else
+			{
+				$rowId = ! empty($items['rowId']) ? $items['rowId'] : $items;
+			}
+
+			if ( ! $this->items->has($rowId))
+			{
+				throw new \Exception('Item not found.');
+			}
+
+			$this->items->forget($rowId);
+		}
+
+		// Save it
+		$this->autoSave();
 
 		return $this;
 	}
@@ -103,9 +181,14 @@ class Cart {
 	 * @param  int  $id
 	 * @return string
 	 */
-	public function createRowId($id)
+	protected function createRowId($id)
 	{
 		return md5(uniqid(rand(), true));
+	}
+
+	public function hasItems()
+	{
+		return ! $this->items->isEmpty();
 	}
 
 	/**
@@ -113,39 +196,20 @@ class Cart {
 	 *
 	 * @return mixed
 	 */
-	public function getItems()
+	public function items()
 	{
 		return $this->items;
 	}
 
-	public function setItems(array $items)
-	{
-		foreach ($items as $item)
-		{
-			$this->add($item);
-		}
-	}
-
 	/**
 	 * Get specific item from cart.
 	 *
 	 * @param  string $id
 	 * @return mixed
 	 */
-	public function getItem($id)
-	{	
+	public function item($id)
+	{
 		return $this->items->get($id);
-	}
-
-	/**
-	 * Get specific item from cart.
-	 *
-	 * @param  string $id
-	 * @return mixed
-	 */
-	public function setItem(array $attributes)
-	{
-		return $this->add($attributes);
 	}
 
 	/**
@@ -159,8 +223,6 @@ class Cart {
 
 		return true;
 	}
-
-
 
 	/**
 	 * Set auto save.
@@ -181,18 +243,38 @@ class Cart {
 	 */
 	public function isAutoSave()
 	{
-		return $this->config->get('cart::autoSave');
+		return $this->autoSave;
+	}
+
+	protected function autoSave()
+	{
+		if ($this->isAutoSave() === true)
+		{
+			$this->save();
+		}
 	}
 
 	/**
 	 * Clear the cart.
 	 *
 	 */
-	public function clearAll()
+	public function destroy()
 	{
 		$this->session->forget($this->config->get('cart::sessionKey'));
 
 		return $this;
+	}
+
+	public function totalPrice()
+	{
+		$total = 0;
+
+		foreach($this->getItems() as $item)
+		{
+			$total += $item->calculatePrice();
+		}
+
+		return $total;
 	}
 
 	/**
@@ -200,16 +282,38 @@ class Cart {
 	 *
 	 * @return float
 	 */
-	public function totalPrice()
+	public function total()
 	{
-		$total = 0;
+		$total = $this->totalPrice();
 
-		foreach($this->getItems() as $item)
+		if (isset($this->discount))
 		{
-			$total += $item->price;
+			$total -= $this->calculatePercentualOrFixed($this->discount);
+		}
+
+		if (isset($this->tax))
+		{
+			$total += $this->calculatePercentualOrFixed($this->tax);
 		}
 
 		return $total;
+	}
+
+	public function calculatePercentualOrFixed($value)
+	{
+		if (ends_with($value, '%'))
+		{
+			return $this->calculatePercentual($value);
+		}
+
+		return (float) $value;
+	}
+
+	protected function calculatePercentual($percent)
+	{
+		$percent = (float) substr($percent, 0, -1);
+
+		return $this->totalPrice() / 100 * $percent;
 	}
 
 	/**

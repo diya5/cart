@@ -21,8 +21,9 @@ class Item implements ArrayAccess, ArrayableInterface, JsonableInterface {
 
 	public function __construct(Cart $cart)
 	{
-		// Set cart object so we can keep track
-		$this->setCart($cart);
+		$this->cart = $cart;
+
+		$this->attributes['options'] = new Collection;
 	}
 
 	public function getCart()
@@ -30,18 +31,42 @@ class Item implements ArrayAccess, ArrayableInterface, JsonableInterface {
 		return $this->cart;
 	}
 
-	public function setCart(Cart $cart)
+	public function calculatePrice()
 	{
-		$this->cart = $cart;
+		$total = $this->price * $this->qty;
+
+		if (isset($this->discount))
+		{
+			$total -= $this->calculatePercentualOrFixed($this->discount);
+		}
+
+		if (isset($this->tax))
+		{
+			$total += $this->calculatePercentualOrFixed($this->tax);
+		}
+
+		return $total;
+	}
+
+	public function calculatePercentualOrFixed($value)
+	{
+		if (ends_with($value, '%'))
+		{
+			return $this->calculatePercentual($value);
+		}
+
+		return (float) $value;
+	}
+
+	protected function calculatePercentual($percent)
+	{
+		$percent = (float) substr($percent, 0, -1);
+
+		return $this->getPrice() / 100 * $percent;
 	}
 
 	public function setOptions(array $options)
 	{
-		if ( ! isset($this->attributes['options']))
-		{
-			$this->attributes['options'] = new Collection;
-		}
-
 		foreach ($options as $option)
 		{
 			$this->setOption($option);
@@ -60,45 +85,11 @@ class Item implements ArrayAccess, ArrayableInterface, JsonableInterface {
 		$this->options->put($_option->name, $_option);
 	}
 
-	/**
-	 * Get options from iten.
-	 *
-	 * @return mixed
-	 */
-	public function getOptions()
+	public function hasOptions()
 	{
-		return isset($this->attributes['options']) ? $this->attributes['options'] : new Collection;
+		return ! $this->options->isEmpty();
 	}
 
-	/**
-	 * Get price from iten.
-	 *
-	 * @return float
-	 */
-	public function getPrice()
-	{
-		return $this->attributes['price'];
-	}
-
-	/**
-	 * Get quantity.
-	 *
-	 * @return int
-	 */
-	public function getQty()
-	{
-		return $this->attributes['qty'];
-	}
-
-	/**
-	 * Get Name.
-	 *
-	 * @return string
-	 */
-	public function getName()
-	{
-		return $this->attributes['name'];
-	}
 
 	public function fill(array $attributes)
 	{
@@ -234,8 +225,7 @@ class Item implements ArrayAccess, ArrayableInterface, JsonableInterface {
 	public function toArray()
 	{
 		$attributes = $this->attributes;
-		
-		$attributes['options'] = $this->attributes['options']->toArray();
+		$attributes['options'] = $this->options->toArray();
 
 		return $attributes;
 	}
