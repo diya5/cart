@@ -22,18 +22,22 @@ class Cart {
 
 	public function __construct(Store $session, Repository $config)
 	{
-		$this->config = $config;
-		$this->session = $session;
+		$this->config     = $config;
+		$this->session    = $session;
 		$this->sessionKey = $this->config->get('cart::sessionKey');
+
+		$_session = $this->session->get($this->sessionKey);
+
+		$this->discount = $_session['discount'];
 
 		// Make items a collection
 		$this->items = new Collection;
 
 		// Get items from session
-		if ($items = $this->session->get($this->sessionKey)
+		if ($items = $_session['items'])
 		{
 			// Set items
-			$this->setItems($items);
+			$this->add($items);
 		}
 
 		// After construct, we can make it autosave
@@ -49,8 +53,10 @@ class Cart {
 	 */
 	public function add($items)
 	{
+
+
 		// Array of items
-		if (isset($items[0]) and (is_array($items[0]) or $items[0] instanceof Item))
+		if (is_array($items) and (is_array(current($items)) or current($items) instanceof Item))
 		{
 			foreach ($items as $item)
 			{
@@ -72,7 +78,7 @@ class Cart {
 		{
 			if(empty($items['rowId']))
 			{
-				$items['rowId'] = $this->createRowId($items['id']);
+				$items['rowId'] = $this->createRowId();
 			}
 			elseif ($this->items->has($items['rowId']))
 			{
@@ -80,6 +86,7 @@ class Cart {
 			}
 
 			$item = with(new Item)->fill($items);
+
 
 			$this->items->put($item->rowId, $item);
 		}
@@ -99,8 +106,9 @@ class Cart {
 	 */
 	public function update($items)
 	{
+
 		// Array of items
-		if (isset($items[0]) and (is_array($items[0]) or $items[0] instanceof Item))
+		if (is_array($items) and (is_array(current($items)) or current($items) instanceof Item))
 		{
 			foreach ($items as $item)
 			{
@@ -115,7 +123,7 @@ class Cart {
 				throw new \Exception('This item already exists, dumbass');
 			}
 
-			$this->items->put($items->rowId, $item);
+			$this->items->put($items->rowId, $items);
 		}
 		// An array of attributes
 		else
@@ -182,7 +190,7 @@ class Cart {
 	 * @param  int  $id
 	 * @return string
 	 */
-	protected function createRowId($id)
+	protected function createRowId()
 	{
 		return md5(uniqid(rand(), true));
 	}
@@ -199,6 +207,7 @@ class Cart {
 	 */
 	public function items()
 	{
+		//exit();
 		return $this->items;
 	}
 
@@ -228,7 +237,7 @@ class Cart {
 	 */
 	public function save()
 	{
-		$this->session->put($this->sessionKey, $this->items->toArray());
+		$this->session->put($this->sessionKey, $this->toArray());
 
 		return true;
 	}
@@ -266,13 +275,18 @@ class Cart {
 		return $this->autoSave;
 	}
 
-	public function totalPrice()
+	public function totalPrice($withDiscount = true)
 	{
 		$total = 0;
 
-		foreach($this->getItems() as $item)
+		foreach($this->items() as $item)
 		{
 			$total += $item->calculatePrice();
+		}
+
+		if ($this->discount and $withDiscount)
+		{
+			$total = $total - $this->discount;
 		}
 
 		return $total;
@@ -328,7 +342,7 @@ class Cart {
 	{
 		$total = 0;
 
-		foreach($this->getItems() as $item)
+		foreach($this->items() as $item)
 		{
 			$total += $item->qty;
 		}
@@ -343,10 +357,33 @@ class Cart {
 	 */
 	public function __toString()
 	{
-		return json_encode(array(
-			'discount' => $this->dicount,
+		return json_encode($this->toJson());
+	}
+
+	public function toArray()
+	{
+		return array(
+			'discount' => $this->discount,
 			'tax'      => $this->tax,
 			'items'    => $this->items->toArray(),
-		));
+		);
+	}
+
+	public function toJson()
+	{
+		return json_encode($this->toArray());
+	}
+
+	public function setDiscount($value)
+	{
+		$this->discount = (float) $value;
+
+		// Save it
+		$this->autoSave();
+	}
+
+	public function discount()
+	{
+		return $this->discount;
 	}
 }

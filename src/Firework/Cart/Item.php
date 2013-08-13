@@ -17,14 +17,16 @@ class Item implements ArrayAccess, ArrayableInterface, JsonableInterface {
 		'price',
 	);
 
-	public function fill(array $attributes)
+	public function fill(array $_attributes)
 	{
-		if ($this->validate($attributes) === false)
+		if ($this->validate($_attributes) === false)
 		{
 			throw new \Exception('Baaaaaaaahhhh, something wrong');
 		}
 
-		foreach ($attributes as $key => $value)
+		$attributes['options'] = new Collection;
+
+		foreach ($_attributes as $key => $value)
 		{
 			$this->$key = $value;
 		}
@@ -76,7 +78,7 @@ class Item implements ArrayAccess, ArrayableInterface, JsonableInterface {
 	{
 		$percent = (float) substr($percent, 0, -1);
 
-		return $this->getPrice() / 100 * $percent;
+		return $this->price / 100 * $percent;
 	}
 
 	public function setOptions(array $options)
